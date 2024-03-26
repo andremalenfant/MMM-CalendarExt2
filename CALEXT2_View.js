@@ -285,7 +285,12 @@ class View {
   }
 
   getStartDay() {
-    var fromNow = this.config.fromNow
+    var fromNow = 0
+    if (typeof this.config.fromNow == "function") {
+      fromNow = this.config.fromNow();
+    } else {
+      fromNow = this.config.fromNow
+    }
     var now = moment().locale(this.locale)
     return now.add(fromNow, this.slotUnit).startOf("day")
   }
@@ -311,7 +316,7 @@ class ViewPeriod extends View {
     viewDom.classList.add(this.config.type)
   }
   adjustSlotWidth(slotDom, count) {
-    if (this.config.type == "row") slotDom.style.width = ((100 / count) - 3) + "%"
+    if (this.config.type == "row") slotDom.style.width = ((100 / count)-1) + "%"
   }
 }
 

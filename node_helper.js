@@ -103,105 +103,193 @@ module.exports = NodeHelper.create({
       console.log(`[CALEXT2] calendar:${calendar.name} >> No data to fetch`)
       return
     }
-    var icalExpander
-    try {
-      icalExpander = new IcalExpander({ics:iCalData, maxIterations: calendar.maxIterations})
-    } catch (e) {
-      console.log(`[CALEXT2] calendar:${calendar.name} >> ${e.message}`)
-      return
-    }
+    /*fs.writeFile("/home/pi/MagicMirror/calendar.txt", iCalData, function (err) {
+      if (err) return console.log(err);
+      console.log('[CALEXT2] calendar > helloworld.txt');
+    })
+    console.log(`[CALEXT2] calendar:${calendar.name} >> data: >> ${iCalData}`)
+    ;*/
+	var eventPool = []	
+	var wholeEvents = []
+	if (calendar.isKingsey) {
+		var pos = iCalData.search("events:");
+		var line = iCalData.substring(pos + 7);
+		pos = line.search("\n");
+		var eventsStr = line.substr(0, pos - 1);
+		//console.log(eventsStr);
+		var events = JSON.parse(eventsStr);
+		//console.log(events[0]);
+	
+		/*
+		  title: 'Fête nationale du Québec à Kingsey Falls',
+		  start: '2023-06-23',
+		  end: '2023-06-24',
+		  color: '#8900fa',
+		  url: '/pageInvalide2023/06/23/fete-nationale-du-quebec-a-kingsey-falls/',
+		  className: [ 'eventCalendarTarget' ]
+		}
+		*/		
 
-    var events
-    try {
-      events = icalExpander.between(
-        moment().subtract(calendar.beforeDays, "days").startOf('day').toDate(),
-        moment().add(calendar.afterDays, "days").endOf('day').toDate()
-      )
-    } catch (e) {
-      console.log(`[CALEXT2] calendar:${calendar.name} >> ${e.message}`)
-      return
-    }
+		for (i in events) {
+			var item = events[i]
 
-    var wholeEvents = [].concat(events.events, events.occurrences)
-    var eventPool = []
-    for (i in wholeEvents) {
-      var item = wholeEvents[i]
+			var ri = (item.hasOwnProperty("item")) ? item.item : item
+			var ev = {}
+			ev.calendarId = calendar.uid
+			ev.location = ""
+			ev.description = ""
+			ev.title = ri.title
+			ev.isRecurring = false
+			var startDateI = ICAL.Time.fromDateString(ri.start);
+			var endDateI = ICAL.Time.fromDateString(ri.end);
 
-      var ri = (item.hasOwnProperty("item")) ? item.item : item
-      var ev = {}
-      ev.calendarId = calendar.uid
-      ev.location = ri.location
-      ev.description = ri.description
-      ev.title = ri.summary
-      ev.isRecurring = ri.isRecurring()
-      ev.isCancelled = (item.hasOwnProperty("component") ? item.component.getFirstPropertyValue("status") != null 
-          ? item.component.getFirstPropertyValue("status").toUpperCase() == "CANCELLED" : false : false);
-      if (Array.isArray(calendar.replaceTitle) && calendar.replaceTitle.length > 0) {
-        for (let j = 0; j < calendar.replaceTitle.length; j++) {
-          var rt = calendar.replaceTitle[j]
-          var re = (rt[0] instanceof RegExp) ? rt[0] : new RegExp(rt[0], "g")
-          var rto = (rt[1]) ? rt[1] : ""
-          ev.title = ev.title.replace(re, rto)
-        }
-      }
+			var startDate, endDate
+			if (calendar.forceLocalTZ) {
+				var ts = startDateI.toJSON()
+				ts.month -= 1
+				var te = endDateI.toJSON()
+				te.month -= 1
+				startDate = moment(ts)
+				endDate = moment(te)
+			} else {
+				startDate = moment(startDateI.toJSDate())
+				endDate = moment(endDateI.toJSDate())
+			}
+	
+			if (!startDate.isBefore(moment().startOf('isoweek'))) {
+				if (!startDate.isAfter(moment().endOf('isoweek'))) {
+					ev.startDate = startDate.format("X")
+					ev.endDate = endDate.format("X")
+					ev.startDateJ = startDate.toJSON()
+					ev.endDateJ = endDate.toJSON()
+					ev.duration = 86400
+					var isFullday = (startDate.format('HHmmss') == "000000" && endDate.format('HHmmss') == "000000") ? true : false
+					ev.isFullday = isFullday
+					ev.isMoment = (ev.duration == 0) ? true : false
+					ev.isPassed = (endDate.isBefore(moment())) ? true : false
+					ev.className = calendar.className
+					ev.icon = calendar.icon
+					ev.uid = (ri.uid)
+						? calendar.uid + ":" + ev.startDate + ":" + ev.endDate + ":" + ri.uid
+						: calendar.uid + ":" + ev.startDate + ":" + ev.endDate + ":" + ev.title
+					ev.calendarName = calendar.name
+					if (calendar.filter) {
+						var f = JSON.parse(calendar.filter).filter
+						var filter = Function("return " + f.toString())
+						var r = filter(ev)
+						if (r(ev)) {
+							eventPool.push(ev)
+						} else {
+							// do nothing
+						}
+					} else {
+						eventPool.push(ev)
+					}
+				}
+			}
+		}
+		console.log(eventPool);
+	
+	} else {
+		var icalExpander
+		try {
+		  icalExpander = new IcalExpander({ics:iCalData, maxIterations: calendar.maxIterations})
+		} catch (e) {
+		  console.log(`[CALEXT2] calendar:${calendar.name} >> ${e.message}`)
+		  return
+		}
 
-      var startDate, endDate
-      if (calendar.forceLocalTZ) {
-        var ts = item.startDate.toJSON()
-        ts.month -= 1
-        var te = item.endDate.toJSON()
-        te.month -= 1
-        startDate = moment(ts)
-        endDate = moment(te)
-      } else {
-        startDate = moment(item.startDate.toJSDate())
-        endDate = moment(item.endDate.toJSDate())
-      }
-      ev.startDate = startDate.format("X")
-      ev.endDate = endDate.format("X")
-      ev.startDateJ = startDate.toJSON()
-      ev.endDateJ = endDate.toJSON()
-      ev.duration = ri.duration.toSeconds()
-      ev.isMoment = (ev.duration == 0) ? true : false
-      ev.isPassed = (endDate.isBefore(moment())) ? true : false
-      if (ev.duration <= 86400) {
-        if (startDate.format("YYMMDD") == endDate.format("YYMMDD")) {
-          ev.isOneday = true
-        } else {
-          if (endDate.format("HHmmss") == "000000") {
-            ev.isOneday = true
-          }
-        }
-      }
-      ev.className = calendar.className
-      ev.icon = calendar.icon
-      var isFullday = (startDate.format('HHmmss') == "000000" && endDate.format('HHmmss') == "000000") ? true : false
-      ev.isFullday = isFullday
-      if (isFullday) {
-      }
+		var events
+		try {
+		  events = icalExpander.between(
+			moment().subtract(calendar.beforeDays, "days").startOf('day').toDate(),
+			moment().add(calendar.afterDays, "days").endOf('day').toDate()
+		  )
+		} catch (e) {
+		  console.log(`[CALEXT2] calendar:${calendar.name} >> ${e.message}`)
+		  return
+		}
 
-      // import the Microsoft property X-MICROSOFT-CDO-BUSYSTATUS, fall back to "BUSY" in case none was found
-      // possible values are 'FREE'|'TENTATIVE'|'BUSY'|'OOF' acording to
-      // https://docs.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-oxcical/cd68eae7-ed65-4dd3-8ea7-ad585c76c736
-      ev.ms_busystatus = ri.component.getFirstPropertyValue('x-microsoft-cdo-busystatus') || 'BUSY'
+		wholeEvents = [].concat(events.events, events.occurrences)
+		for (i in wholeEvents) {
+		  var item = wholeEvents[i]
 
-      ev.uid = (ri.uid)
-        ? calendar.uid + ":" + ev.startDate + ":" + ev.endDate + ":" + ri.uid
-        : calendar.uid + ":" + ev.startDate + ":" + ev.endDate + ":" + ev.title
-      ev.calendarName = calendar.name
-      if (calendar.filter) {
-        var f = JSON.parse(calendar.filter).filter
-        var filter = Function("return " + f.toString())
-        var r = filter(ev)
-        if (r(ev)) {
-          eventPool.push(ev)
-        } else {
-          // do nothing
-        }
-      } else {
-        eventPool.push(ev)
-      }
-    }
+		  var ri = (item.hasOwnProperty("item")) ? item.item : item
+		  var ev = {}
+		  ev.calendarId = calendar.uid
+		  ev.location = ri.location
+		  ev.description = ri.description
+		  ev.title = ri.summary
+		  ev.isRecurring = ri.isRecurring()
+		  ev.isCancelled = (item.hasOwnProperty("component") ? item.component.getFirstPropertyValue("status") != null 
+			  ? item.component.getFirstPropertyValue("status").toUpperCase() == "CANCELLED" : false : false);
+		  if (Array.isArray(calendar.replaceTitle) && calendar.replaceTitle.length > 0) {
+			for (let j = 0; j < calendar.replaceTitle.length; j++) {
+			  var rt = calendar.replaceTitle[j]
+			  var re = (rt[0] instanceof RegExp) ? rt[0] : new RegExp(rt[0], "g")
+			  var rto = (rt[1]) ? rt[1] : ""
+			  ev.title = ev.title.replace(re, rto)
+			}
+		  }
+
+		  var startDate, endDate
+		  if (calendar.forceLocalTZ) {
+			var ts = item.startDate.toJSON()
+			ts.month -= 1
+			var te = item.endDate.toJSON()
+			te.month -= 1
+			startDate = moment(ts)
+			endDate = moment(te)
+		  } else {
+			startDate = moment(item.startDate.toJSDate())
+			endDate = moment(item.endDate.toJSDate())
+		  }
+		  ev.startDate = startDate.format("X")
+		  ev.endDate = endDate.format("X")
+		  ev.startDateJ = startDate.toJSON()
+		  ev.endDateJ = endDate.toJSON()
+		  ev.duration = ri.duration.toSeconds()
+		  ev.isMoment = (ev.duration == 0) ? true : false
+		  ev.isPassed = (endDate.isBefore(moment())) ? true : false
+		  if (ev.duration <= 86400) {
+			if (startDate.format("YYMMDD") == endDate.format("YYMMDD")) {
+			  ev.isOneday = true
+			} else {
+			  if (endDate.format("HHmmss") == "000000") {
+				ev.isOneday = true
+			  }
+			}
+		  }
+		  ev.className = calendar.className
+		  ev.icon = calendar.icon
+		  var isFullday = (startDate.format('HHmmss') == "000000" && endDate.format('HHmmss') == "000000") ? true : false
+		  ev.isFullday = isFullday
+		  if (isFullday) {
+		  }
+
+		  // import the Microsoft property X-MICROSOFT-CDO-BUSYSTATUS, fall back to "BUSY" in case none was found
+		  // possible values are 'FREE'|'TENTATIVE'|'BUSY'|'OOF' acording to
+		  // https://docs.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-oxcical/cd68eae7-ed65-4dd3-8ea7-ad585c76c736
+		  ev.ms_busystatus = ri.component.getFirstPropertyValue('x-microsoft-cdo-busystatus') || 'BUSY'
+
+		  ev.uid = (ri.uid)
+			? calendar.uid + ":" + ev.startDate + ":" + ev.endDate + ":" + ri.uid
+			: calendar.uid + ":" + ev.startDate + ":" + ev.endDate + ":" + ev.title
+		  ev.calendarName = calendar.name
+		  if (calendar.filter) {
+			var f = JSON.parse(calendar.filter).filter
+			var filter = Function("return " + f.toString())
+			var r = filter(ev)
+			if (r(ev)) {
+			  eventPool.push(ev)
+			} else {
+			  // do nothing
+			}
+		  } else {
+			eventPool.push(ev)
+		  }
+		}
+	}
     eventPool.slice(calendar.maxItems)
     console.log(`[CALEXT2] calendar:${calendar.name} >> Scanned: ${wholeEvents.length}, Selected: ${eventPool.length}`)
     this.mergeEvents(eventPool, calendar.uid)
